@@ -18,6 +18,13 @@ def param_default(params: dict, key: str, default):
     else:
         return params[key] if params.__contains__(key) else default
 
+def update_param(input_dict: dict, param_dict: dict):
+    for key in input_dict:
+        if param_dict.__contains__(key):
+            param_dict[key] = input_dict[key]
+        else:
+            print(f"{key} is not in param dict, abort!!!")
+    return param_dict
 
 def set_trace(isset=True):
     if isset is True:

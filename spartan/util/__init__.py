@@ -14,6 +14,7 @@ from .basicutil import set_trace, TimeMapper, StringMapper,\
     IntMapper, ScoreMapper, DenseIntMapper
 from .drawutil import plot_graph, plot_timeseries, drawEigenPulse, plot, histogram_viz, clusters_viz, drawHexbin, drawRectbin
 from .rect_histogram import RectHistogram
+from .geneutil import load_sine_data
 
 MODEL_PATH = 'spartan.model'
 
@@ -38,4 +39,5 @@ __all__ = [
     'drawHexbin',
     'drawRectbin',
     'RectHistogram',
+    'load_sine_data'
 ]

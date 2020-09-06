@@ -1,7 +1,6 @@
 
 from torch.utils.data import DataLoader, Dataset
 import torch
-from . import param_default
 
 
 class MyDataSet(Dataset):
@@ -24,7 +23,7 @@ def preprocess_data(data, labels=None, param=None, is_train=True):
         labels = np.zeros([data.shape[0], 1])
 
     dataset = MyDataSet(data, labels)
-    batch_size = param_default(param, "batch_size", 64)
+    batch_size = param["batch_size"]
 
     data_loader = DataLoader(
         dataset=dataset,

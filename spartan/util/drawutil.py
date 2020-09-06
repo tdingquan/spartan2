@@ -22,7 +22,7 @@ def plot(model: "Model", *args, **kwargs):
         _model.BeatGAN: __plot_beatgan
     }
     if function_dict.__contains__(model):
-        function_dict[model](*args, **kwargs)
+        return function_dict[model](*args, **kwargs)
     else:
         raise Exception(f"Draw functions of model {model} not existed")
 
@@ -201,6 +201,7 @@ def __plot_beatgan(input, output, heat):
     ax[1].imshow(heat_norm, cmap="jet", aspect="auto")
     ax[1].set_yticks([])
     fig.tight_layout()
+    return plt
 
 
 def histogram_viz(histogram_matrix, x_ticks:list, y_ticks:list, output:str, 

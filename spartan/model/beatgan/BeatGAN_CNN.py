@@ -1,4 +1,4 @@
-
+from torch.utils.data import DataLoader, Dataset
 import torch
 import os
 import numpy as np
@@ -9,24 +9,21 @@ from .metric import evaluate
 from .preprocess import preprocess_data
 
 from .._model import MLmodel
-from . import param_default
+from . import update_param
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 param_default_dict = {
     'network': 'CNN',
-    'net_type': 'gru',
-    'layers': 1,
-    'seq_len': 256,
+    'seq_len': 64,
     'input_size': 1,
-    'hidden_size': 100,
     'rep_size': 20,
     'batch_size': 64,
     'max_epoch': 5,
     'lr': 0.01,
     'lambda': 1,
-    'out_path': './output'
+    'out_path': './output',
+    'device': device
 }
 
 
@@ -140,25 +137,41 @@ def weights_init(mod):
 
 
 class BeatGAN(MLmodel):
-    def __init__(self, dataloader):
-        super(BeatGAN, self).__init__(dataloader)
-        self.dataloader = None
-        self.device = None
-        self.lamda_value = None
+    def __init__(self, tensor, *args, **kwargs):
+        super(BeatGAN, self).__init__(tensor)
+        param_dict = update_param(kwargs, param_default_dict)
+        if not isinstance(tensor, DataLoader):
+            self.dataloader = preprocess_data(tensor, labels=None, param=param_dict, is_train=True)
+        else:
+            self.dataloader = tensor
+        self.device = param_dict["device"]
+        self.lamda_value = param_dict["lambda"]
+        self.max_epoch = param_dict["max_epoch"]
+        self.generator = Generator(nc=param_dict["input_size"],
+                                   nz=param_dict["rep_size"],
+                                   seq_len=param_dict["seq_len"],
+                                   device=param_dict["device"]).to(param_dict["device"])
+        self.discriminator = Discriminator(nc=param_dict["input_size"],
+                                           seq_len=param_dict["seq_len"],
+                                           device=param_dict["device"]).to(param_dict["device"])
+        self.mse = nn.MSELoss()
+        self.bce = nn.BCELoss()
+        self.optimizerG = optim.Adam(self.generator.parameters(),
+                                     lr=param_dict["lr"])
+        self.optimizerD = optim.Adam(self.discriminator.parameters(),
+                                     lr=param_dict["lr"])
+        self.out_dir = param_dict["out_path"]
+        if not os.path.exists(self.out_dir):
+            os.makedirs(self.out_dir)
+        self.iteration = 0
+        self.fix_input = None
+        self.fix_data_cond = None
 
-        self.generator = None
-        self.discriminator = None
-
-        self.mse = None
-        self.bce = None
-
-        self.optimizerG = None
-        self.optimizerD = None
-
-        self.out_dir = None
-        self.iteration = None
+        if kwargs.__contains__("model_path"):
+            self.load_model_from(kwargs["model_path"])
 
         self.fix_input = None
+        self.fix_data_cond = None
 
     def train(self, data=None):
         self.generator.apply(weights_init)
@@ -245,21 +258,21 @@ class BeatGAN(MLmodel):
 
             self.optimizerG.step()
 
-            if (i % 100) == 0:
-                print("{}:loss_g(rec/adv):{}/{},loss_d(real/fake):{}/{}".format(i, loss_g_rec,
-                                                                                loss_g_adv * self.lamda_value,
-                                                                                loss_d_real, loss_d_fake))
-                # fake_data, z = self.generator(self.fix_input)
-                # show_num = 8
-                # img_tensor = multi_ts2image(fake_data.detach().cpu().numpy()[:show_num],
-                #                             self.fix_input.cpu().numpy()[:show_num])
-                # for img_idx in range(show_num):
-                #     self.writer.add_image("image/rec" + str(img_idx), img_tensor[img_idx], global_step=self.iteration,
-                #                           dataformats='HWC')
+            # if (i % 100) == 0:
+            #     print("{}:loss_g(rec/adv):{}/{},loss_d(real/fake):{}/{}".format(i, loss_g_rec,
+            #                                                                     loss_g_adv * self.lamda_value,
+            #                                                                     loss_d_real, loss_d_fake))
+            #     fake_data, z = self.generator(self.fix_input)
+            #     show_num = 8
+            #     img_tensor = multi_ts2image(fake_data.detach().cpu().numpy()[:show_num],
+            #                                 self.fix_input.cpu().numpy()[:show_num])
+            #     for img_idx in range(show_num):
+            #         self.writer.add_image("image/rec" + str(img_idx), img_tensor[img_idx], global_step=self.iteration,
+            #                               dataformats='HWC')
 
-            if loss_d.item() < 5e-6:
-                self.discriminator.apply(weights_init)
-                print('Reloading dis net')
+            # if loss_d.item() < 5e-6:
+            #     self.discriminator.apply(weights_init)
+            #     print('Reloading dis net')
 
     def test(self, data=None, intrain=False, scale=True):
         # if not intrain:
@@ -269,11 +282,12 @@ class BeatGAN(MLmodel):
 
         if data is None:
             dataloader = self.dataloader
+        elif isinstance(data, DataLoader):
+            dataloader = data
         else:
             dataloader = preprocess_data(data, labels=None, param={}, is_train=False)
-        
+
         rec_diff = self.get_diff(dataloader)
-        # print(rec_diff)
         return rec_diff
 
     def save_cur_model(self, outdir, filename):
@@ -337,37 +351,7 @@ class BeatGAN(MLmodel):
 
 class BeatGAN_CNN(BeatGAN):
     def __init__(self, tensor, *args, **kwargs):
-        super(BeatGAN_CNN, self).__init__(tensor)
-        self.dataloader = preprocess_data(tensor, labels=None, param=kwargs, is_train=True)
-        self.device = device
-        self.lamda_value = param_default(kwargs, "lambda", param_default_dict)
-
-        self.max_epoch = param_default(kwargs, "max_epoch", param_default_dict)
-
-        self.generator = Generator(nc=param_default(kwargs, "input_size", param_default_dict),
-                                   nz=param_default(kwargs, "rep_size", param_default_dict),
-                                   seq_len=param_default(kwargs, "seq_len", param_default_dict), device=device).to(device)
-        self.discriminator = Discriminator(nc=param_default(kwargs, "input_size", param_default_dict),
-                                           seq_len=param_default(kwargs, "seq_len", param_default_dict), device=device).to(device)
-
-        self.mse = nn.MSELoss()
-        self.bce = nn.BCELoss()
-
-        self.optimizerG = optim.Adam(self.generator.parameters(), lr=param_default(kwargs, "lr", param_default_dict))
-
-        self.optimizerD = optim.Adam(self.discriminator.parameters(), lr=param_default(kwargs, "lr", param_default_dict))
-
-        self.out_dir = param_default(kwargs, "out_path", param_default_dict)
-        if not os.path.exists(self.out_dir):
-            os.makedirs(self.out_dir)
-
-        self.iteration = 0
-
-        self.fix_input = None
-        self.fix_data_cond = None
-
-        if kwargs.__contains__("model_path"):
-            self.load_model_from(kwargs["model_path"])
+        super(BeatGAN_CNN, self).__init__(tensor, *args, **kwargs)
 
     def fit(self, data=None):
         return self.train(data)
